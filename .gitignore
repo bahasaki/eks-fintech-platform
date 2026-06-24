@@ -1,0 +1,19 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraform.lock.hcl
+
+# Python
+__pycache__/
+*.pyc
+.env
+venv/
+
+# Kubernetes secrets
+*-secret.yaml
+
+# OS
+.DS_Store
+Thumbs.db
