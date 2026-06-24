@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: accounts
+  labels:
+    app: accounts
+    environment: local
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: transactions
+  labels:
+    app: transactions
+    environment: local
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api-gateway
+  labels:
+    app: api-gateway
+    environment: local
