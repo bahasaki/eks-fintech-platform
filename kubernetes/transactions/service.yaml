@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: transactions
+  namespace: transactions
+  labels:
+    app: transactions
+spec:
+  selector:
+    app: transactions
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8001
+  type: ClusterIP
