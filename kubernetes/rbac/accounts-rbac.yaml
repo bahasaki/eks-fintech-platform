@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: accounts-sa
+  namespace: accounts
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: accounts-role
+  namespace: accounts
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: accounts-rolebinding
+  namespace: accounts
+subjects:
+  - kind: ServiceAccount
+    name: accounts-sa
+    namespace: accounts
+roleRef:
+  kind: Role
+  name: accounts-role
+  apiGroup: rbac.authorization.k8s.io

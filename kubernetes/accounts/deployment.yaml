@@ -15,6 +15,7 @@ spec:
       labels:
         app: accounts
     spec:
+      serviceAccountName: accounts-sa
       containers:
         - name: accounts
           image: accounts-service:local

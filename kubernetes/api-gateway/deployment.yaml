@@ -15,6 +15,7 @@ spec:
       labels:
         app: api-gateway
     spec:
+      serviceAccountName: api-gateway-sa
       containers:
         - name: api-gateway
           image: api-gateway-service:local

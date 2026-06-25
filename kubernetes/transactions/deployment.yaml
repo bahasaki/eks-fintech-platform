@@ -15,6 +15,7 @@ spec:
       labels:
         app: transactions
     spec:
+      serviceAccountName: transactions-sa
       containers:
         - name: transactions
           image: transactions-service:local
