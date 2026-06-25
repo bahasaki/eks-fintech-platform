@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: accounts
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/bahasaki/eks-fintech-platform
+    targetRevision: HEAD
+    path: kubernetes/accounts
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: accounts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
