@@ -16,6 +16,15 @@ spec:
         app: transactions
     spec:
       serviceAccountName: transactions-sa
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: transactions
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: transactions
           image: transactions-service:local
