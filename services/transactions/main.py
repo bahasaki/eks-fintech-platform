@@ -3,8 +3,10 @@ from pydantic import BaseModel
 from typing import Optional
 import uuid
 import datetime
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(title="Transactions Service")
+Instrumentator().instrument(app).expose(app)
 
 # In-memory storage (заменим на RDS позже)
 transactions_db = {}

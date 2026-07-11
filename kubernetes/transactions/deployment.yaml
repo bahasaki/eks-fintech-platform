@@ -27,8 +27,8 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: transactions
-          image: 774493573578.dkr.ecr.us-east-1.amazonaws.com/transactions-service:latest
-          imagePullPolicy: Always
+          image: transactions-service:dev
+          imagePullPolicy: Never
           ports:
             - containerPort: 8001
           resources:
