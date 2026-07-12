@@ -2,8 +2,10 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 import httpx
 import os
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(title="API Gateway")
+Instrumentator().instrument(app).expose(app)
 
 ACCOUNTS_URL = os.getenv("ACCOUNTS_SERVICE_URL", "http://accounts.accounts.svc.cluster.local")
 TRANSACTIONS_URL = os.getenv("TRANSACTIONS_SERVICE_URL", "http://transactions.transactions.svc.cluster.local")

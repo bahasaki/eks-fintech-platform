@@ -18,8 +18,8 @@ spec:
       serviceAccountName: api-gateway-sa
       containers:
         - name: api-gateway
-          image: 774493573578.dkr.ecr.us-east-1.amazonaws.com/api-gateway-service:latest
-          imagePullPolicy: Always
+          image: api-gateway-service:dev
+          imagePullPolicy: Never
           ports:
             - containerPort: 8002
           env:
