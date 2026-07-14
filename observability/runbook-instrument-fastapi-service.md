@@ -2,10 +2,12 @@
 
 Reusable procedure for exposing `/metrics` on a FastAPI service running on
 the `fintech` kind cluster and wiring it into the kube-prometheus-stack
-already deployed in the `monitoring` namespace. First proven end-to-end on
-`accounts` (2026-07-10) — 2/2 targets `UP` in Prometheus.
+already deployed in the `monitoring` namespace.
 
-Apply this checklist to each remaining service (`transactions`, `api-gateway`).
+**Status: complete for all three services** — `accounts` (2026-07-10),
+`transactions` and `api-gateway` (2026-07-11/12). All three confirmed
+`UP` in Prometheus Targets. This runbook is now a reference for future
+services (e.g. anything added in later phases), not an active checklist.
 
 ## Prerequisites
 
@@ -118,7 +120,7 @@ kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 909
 Open `http://localhost:9090/targets` — look for
 `serviceMonitor/<service-name>/<service-name>/0` with all replicas `UP`.
 
-## Common failure points (from the accounts run)
+## Common failure points
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -126,4 +128,7 @@ Open `http://localhost:9090/targets` — look for
 | ServiceMonitor exists in Git but not in cluster | Same as above — ArgoCD hasn't synced | Same fix |
 | ServiceMonitor exists in cluster but target never appears in Prometheus | Missing `release: prometheus` label | Add the label, commit, sync |
 | Target appears but shows `DOWN` | Port name mismatch between Service and ServiceMonitor | Confirm `port: http` in ServiceMonitor matches `name: http` in Service |
-| Pod `ImagePullBackOff` after rebuild | Deployment still references ECR image | See step 6 |
+| Pod `ImagePullBackOff` after rebuild | Deployment still references ECR image | See step 6 — this recurred independently on `api-gateway` (pre-existing, same root cause as the accounts incident) |
+| `docker build` fails with `error getting credentials - err: exit status 1` pulling a *public* base image | Docker Desktop's `credsStore` (`desktop.exe` on Windows/WSL2) hung and can't be reached, even though no auth is actually needed for public images | Temporarily strip `credsStore` from `~/.docker/config.json` (back it up first): `echo '{"auths": {}}' > ~/.docker/config.json`. Restart Docker Desktop if this doesn't help. |
+| Target briefly shows `DOWN` / `connect: connection refused` for services that were previously `UP`, across multiple unrelated services at once | Not a config issue — this matches a recurring pattern of the whole `monitoring` and app namespaces restarting together, seen a few times late at night (Docker Desktop/WSL2 related, not Kubernetes-level). Self-resolves within a minute or two. | Re-check `kubectl get pods -n <namespace>` for recent `RESTARTS` timestamps before debugging further. If pods are `Running` and restarts are recent, just wait and refresh. |
+| `main.py` missing the `Instrumentator().instrument(app).expose(app)` line even though the import was added | Easy to miss when copy-pasting — the import alone doesn't do anything | Always `cat` the file back after editing and confirm the line is present before building the image |
