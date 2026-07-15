@@ -1,0 +1,56 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fintech-services-alerts
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: fintech-services.rules
+      rules:
+        - alert: HighErrorRate
+          expr: |
+            sum(rate(http_requests_total{namespace=~"accounts|transactions|api-gateway", status=~"5.."}[5m])) by (namespace)
+            /
+            sum(rate(http_requests_total{namespace=~"accounts|transactions|api-gateway"}[5m])) by (namespace)
+            > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High 5xx error rate on {{ $labels.namespace }}"
+            description: >-
+              {{ $labels.namespace }} has a 5xx error rate above 5% for the
+              last 5 minutes (current value: {{ $value | humanizePercentage }}).
+              Check recent deployments and application logs.
+
+        - alert: PodRestartLoop
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace=~"accounts|transactions|api-gateway"}[15m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.pod }} in {{ $labels.namespace }} is restarting repeatedly"
+            description: >-
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              ({{ $labels.namespace }}) has restarted more than 3 times in
+              the last 15 minutes. This may indicate a crash loop —
+              check logs with `kubectl logs {{ $labels.pod }} -n {{ $labels.namespace }} --previous`.
+
+        - alert: HighLatencyP95
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(http_request_duration_seconds_bucket{namespace=~"accounts|transactions|api-gateway"}[5m])) by (le, namespace)
+            ) > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High p95 latency on {{ $labels.namespace }}"
+            description: >-
+              {{ $labels.namespace }} p95 request latency has been above
+              1 second for the last 5 minutes (current value:
+              {{ $value | humanizeDuration }}). Check for slow downstream
+              calls or resource constraints.
