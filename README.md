@@ -25,6 +25,12 @@ graph TB
             subgraph TR["namespace: transactions"]
                 TRN[transactions x2-5\nHPA enabled]
             end
+
+            subgraph MON["namespace: monitoring"]
+                PROM[Prometheus]
+                GRAF[Grafana]
+                AM[Alertmanager]
+            end
         end
         
         ECR[ECR Registry]
@@ -38,6 +44,11 @@ graph TB
     NG --> AGW
     AGW --> ACC
     AGW --> TRN
+    ACC -.metrics.-> PROM
+    TRN -.metrics.-> PROM
+    AGW -.metrics.-> PROM
+    PROM --> GRAF
+    PROM --> AM
     GH --> ARG
     ARG --> EKS
     ECR --> EKS
@@ -51,6 +62,7 @@ graph TB
 - **Services** — FastAPI (Python)
 - **Registry** — AWS ECR
 - **Ingress** — NGINX Ingress Controller + AWS ALB
+- **Observability** — Prometheus, Grafana, Alertmanager (kube-prometheus-stack)
 - **CI/CD** — GitHub Actions (coming)
 
 ## Services
@@ -71,6 +83,53 @@ graph TB
 | High Availability | Pod Anti-Affinity across nodes |
 | GitOps | ArgoCD synced to GitHub |
 | Zero-downtime deploy | Rolling updates |
+| Observability | Prometheus metrics, Grafana dashboards, Alertmanager rules — see below |
+
+## Observability
+
+All three services expose Prometheus metrics via
+`prometheus-fastapi-instrumentator` (RPS, error rate, request latency
+histograms), scraped by Prometheus through per-service `ServiceMonitor`
+CRDs. The entire stack — Helm release, dashboards, and alert rules — is
+deployed and managed through ArgoCD, not manual `helm install` /
+`kubectl apply`.
+
+**Dashboard** — a custom Grafana dashboard ("Fintech Services
+Overview") shows request rate, 5xx error rate, and p50/p95/p99 latency
+per service. Deployed as a `ConfigMap` (dashboards-as-code), picked up
+automatically by Grafana's sidecar.
+
+**Alerts** — three `PrometheusRule` alerts: `HighErrorRate` (>5% 5xx
+over 5m), `PodRestartLoop` (>3 restarts in 15m), `HighLatencyP95` (p95 >1s
+over 5m). `PodRestartLoop` was validated end-to-end by deliberately
+crash-looping a pod and confirming the alert transitioned
+`INACTIVE → PENDING → FIRING → INACTIVE` and reached Alertmanager (see
+`docs/incidents/2026-07-14-alert-validation-podrestartloop.md`).
+
+**Design decisions and trade-offs** — full context in
+[`docs/adrs/004-observability-stack.md`](docs/adrs/004-observability-stack.md),
+including why kube-prometheus-stack, why 2-day retention, why
+dashboards/alerts are code rather than UI-configured, and known gaps
+(e.g. api-gateway's outbound calls aren't separately instrumented).
+
+**Runbook** — a reusable checklist for instrumenting a new FastAPI
+service with Prometheus metrics lives at
+[`observability/runbook-instrument-fastapi-service.md`](observability/runbook-instrument-fastapi-service.md).
+
+### Accessing the dashboards locally
+
+```bash
+# Grafana (credentials: admin / see command below)
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+kubectl get secret -n monitoring kube-prometheus-stack-grafana \
+  -o jsonpath="{.data.admin-password}" | base64 --decode; echo
+
+# Prometheus
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+
+# Alertmanager
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
+```
 
 ## Infrastructure
 
@@ -101,6 +160,11 @@ kubectl apply -f kubernetes/ingress/
 kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 kubectl apply -f argocd/
+
+# ArgoCD manages the monitoring stack too — kube-prometheus-stack Helm
+# release + custom dashboards/alerts both sync automatically once
+# argocd/kube-prometheus-stack-app.yaml and
+# argocd/monitoring-extras-app.yaml are applied (included in argocd/ above).
 ```
 
 ## AWS Deployment
@@ -139,6 +203,12 @@ kubectl apply -f argocd/
 terraform destroy
 ```
 
+> **Note:** `kubernetes/*/deployment.yaml` files currently point at
+> local dev images (`imagePullPolicy: Never`) for kind development —
+> see `docs/incidents/2026-07-10-accounts-imagepullbackoff.md`. Before
+> deploying to EKS, these need to be switched back to the ECR image
+> references shown above.
+
 ## API Endpoints
 
 ```bash
@@ -173,6 +243,9 @@ Ensures replicas are distributed across different nodes. If one node fails, the 
 **Why private subnets for EKS nodes?**
 Worker nodes are not directly accessible from the internet. All traffic flows through ALB → Ingress Controller → services. Reduces attack surface.
 
+**Why kube-prometheus-stack for observability, and why is it split into two ArgoCD Applications?**
+See [`docs/adrs/004-observability-stack.md`](docs/adrs/004-observability-stack.md) for full reasoning — short version: the Helm chart bundles the operator and CRDs needed for ServiceMonitor/PrometheusRule, and splitting the chart itself from the custom dashboards/alerts keeps an external dependency's release cycle separate from project-specific, frequently-changing content.
+
 ## Incident Scenarios Documented
 
 | Incident | Cause | Resolution |
@@ -181,6 +254,12 @@ Worker nodes are not directly accessible from the internet. All traffic flows th
 | 307 Redirect loop | FastAPI trailing slash | Added follow_redirects=True in httpx |
 | Node group CREATE_FAILED | t3.medium not available | Changed to t3.small |
 | Docker socket permission | User not in docker group | usermod -aG docker $USER |
+| ImagePullBackOff (accounts, api-gateway) | Deployment manifests referenced ECR images unreachable from kind (no IAM auth on kind nodes) | Built local `:dev` images, `kind load docker-image`, switched manifests to `imagePullPolicy: Never` — [details](docs/incidents/2026-07-10-accounts-imagepullbackoff.md) |
+| ServiceMonitor/PrometheusRule silently not scraped after ArgoCD migration | `release` label on ServiceMonitor/PrometheusRule didn't match the new Helm release name (`prometheus` → `kube-prometheus-stack`) — Prometheus's selector match failed silently, no error | Updated `release` label across all ServiceMonitors and the PrometheusRule to match the new release name |
+| ArgoCD Application stuck comparing Helm chart + Git values file | `values-kind.yaml` existed locally (used for `helm install`) but was never actually committed to Git — ArgoCD clones from GitHub and had no access to it | Committed the file; confirmed with `git show HEAD:<path>` before assuming any file is actually tracked |
+
+Full alert-validation writeup (deliberately triggering `PodRestartLoop`
+end-to-end): [`docs/incidents/2026-07-14-alert-validation-podrestartloop.md`](docs/incidents/2026-07-14-alert-validation-podrestartloop.md)
 
 ## Screenshots
 
