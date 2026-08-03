@@ -1,0 +1,83 @@
+# values-kind.yaml
+# Урезанные ресурсы kube-prometheus-stack для локального kind-кластера.
+# Дефолты чарта рассчитаны на production-ноды с десятками GB RAM —
+# на kind (Docker-контейнеры, делящие ресурсы WSL2) это приводит к
+# Pending подам / долгому старту. См. ADR-00X (Observability sizing).
+
+prometheus:
+  prometheusSpec:
+    # Короткий retention — это учебный кластер, не нужно 10 дней истории.
+    retention: 2d
+
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+
+    # Persistence оставляем включённым — это реальный production-паттерн
+    # (без него любой restart пода = потеря всей истории метрик) и прямая
+    # практика PVC/StorageClass для CKA.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          # kind поставляется со встроенным local-path-provisioner,
+          # который создаёт PV автоматически при первом claim'е.
+          storageClassName: standard
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+
+grafana:
+  # Без persistence — дашборды версионируем как код через ConfigMap (sidecar),
+  # а не храним только в UI. PVC здесь не добавляет архитектурной ценности.
+  persistence:
+    enabled: false
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Sidecar, который автоматически подхватывает дашборды из ConfigMap
+  # с нужным label — это и есть "дашборды как код".
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    # Без persistence — состояние алертов не критично терять на учебном кластере.
+    storage: {}
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# Node Exporter и kube-state-metrics — по одному лёгкому поду/DaemonSet,
+# дефолтные ресурсы чарта уже скромные, трогать не нужно.
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
