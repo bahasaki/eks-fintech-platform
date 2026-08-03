@@ -4,7 +4,7 @@ metadata:
   name: fintech-services-alerts
   namespace: monitoring
   labels:
-    release: prometheus
+    release: PrometheusRule
 spec:
   groups:
     - name: fintech-services.rules
