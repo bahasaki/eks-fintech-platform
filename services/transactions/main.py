@@ -59,4 +59,4 @@ def get_account_transactions(account_id: str):
         t for t in transactions_db.values()
         if t["account_id"] == account_id
     ]
-    return {"transactions": account_transactions, "total": len(account_transactions)}
+    return {"transactions": account_transactions, "total": len(account_transactions)}# CI/CD pipeline test - triggers transactions rebuild
