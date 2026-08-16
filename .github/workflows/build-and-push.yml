@@ -87,6 +87,12 @@ jobs:
           docker push $ECR_REGISTRY/${{ matrix.service }}-service:$IMAGE_TAG
           docker push $ECR_REGISTRY/${{ matrix.service }}-service:latest
 
+      - name: Sync with latest main before editing manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+
       - name: Update Kubernetes manifest with new image tag
         run: |
           sed -i "s|image: .*${{ matrix.service }}-service:.*|image: ${ECR_REGISTRY}/${{ matrix.service }}-service:${{ github.sha }}|" \
@@ -94,9 +100,6 @@ jobs:
 
       - name: Commit updated manifest
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main
           git add kubernetes/${{ matrix.service }}/deployment.yaml
           git diff --staged --quiet || git commit -m "chore: update ${{ matrix.service }} image to ${{ github.sha }} [skip ci]"
           git push
