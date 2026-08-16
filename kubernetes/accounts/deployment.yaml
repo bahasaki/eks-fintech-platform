@@ -18,7 +18,7 @@ spec:
       serviceAccountName: accounts-sa
       containers:
         - name: accounts
-          image: accounts-service:dev
+          image: 774493573578.dkr.ecr.us-east-1.amazonaws.com/accounts-service:3e80caba709bc74047d0082f0740e54e88c49405
           imagePullPolicy: Never
           ports:
             - containerPort: 8000
