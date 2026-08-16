@@ -276,7 +276,11 @@ See [ADR-004](docs/adrs/004-observability-stack.md) for full reasoning — short
 | [EKS node group CREATE_FAILED](docs/incidents/2026-07-06-eks-nodegroup-create-failed.md) | `t3.medium` not Free-Tier eligible on this account | Changed default `instance_types` to `t3.small` |
 | [terraform destroy blocked — VPC DependencyViolation](docs/incidents/2026-07-06-terraform-destroy-vpc-dependency.md) | Orphaned classic ELB (created by Kubernetes, not Terraform) held ENIs in the VPC's subnets | Deleted the ELB and VPC manually, then `terraform state rm` to resync state |
 | [ImagePullBackOff (accounts, api-gateway)](docs/incidents/2026-07-10-accounts-imagepullbackoff.md) | Deployment manifests referenced ECR images unreachable from kind (no IAM auth on kind nodes) | Built local `:dev` images, `kind load docker-image`, switched manifests to `imagePullPolicy: Never` |
+| [Recurring late-night namespace restarts](docs/incidents/2026-07-10-late-night-namespace-restarts.md) | Docker Desktop/WSL2 instability, not a Kubernetes-level issue | Recognized as a self-resolving environmental pattern; no longer investigated fresh each time |
+| [Docker Desktop credsStore hang](docs/incidents/2026-07-12-docker-credstore-hang.md) | `desktop.exe` credential helper hung, blocking even public-image pulls | Temporarily stripped `credsStore` from `~/.docker/config.json` |
 | [PodRestartLoop alert validation](docs/incidents/2026-07-14-alert-validation-podrestartloop.md) | N/A — deliberate end-to-end test of the alerting pipeline | Confirmed `INACTIVE → PENDING → FIRING → INACTIVE` lifecycle and Alertmanager delivery |
+| [values-kind.yaml never committed to Git](docs/incidents/2026-08-02-values-file-never-committed.md) | File existed and worked locally (used by manual `helm install`) but was never actually `git add`-ed | Committed the file; confirmed with `git show HEAD:<path>` before assuming any file is tracked |
+| [Release-label mismatch after Helm rename](docs/incidents/2026-08-03-release-label-mismatch.md) | ArgoCD migration renamed the Helm release (`prometheus` → `kube-prometheus-stack`), silently breaking the `release` label match on all ServiceMonitors/PrometheusRule | Updated the `release` label across all four manifests to match the new release name |
 
 ## Screenshots
 
