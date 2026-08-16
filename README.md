@@ -104,7 +104,7 @@ over 5m), `PodRestartLoop` (>3 restarts in 15m), `HighLatencyP95` (p95 >1s
 over 5m). `PodRestartLoop` was validated end-to-end by deliberately
 crash-looping a pod and confirming the alert transitioned
 `INACTIVE → PENDING → FIRING → INACTIVE` and reached Alertmanager (see
-`docs/incidents/2026-07-14-alert-validation-podrestartloop.md`).
+[`docs/incidents/2026-07-14-alert-validation-podrestartloop.md`](docs/incidents/2026-07-14-alert-validation-podrestartloop.md)).
 
 **Design decisions and trade-offs** — full context in
 [`docs/adrs/004-observability-stack.md`](docs/adrs/004-observability-stack.md),
@@ -114,7 +114,7 @@ dashboards/alerts are code rather than UI-configured, and known gaps
 
 **Runbook** — a reusable checklist for instrumenting a new FastAPI
 service with Prometheus metrics lives at
-[`observability/runbook-instrument-fastapi-service.md`](observability/runbook-instrument-fastapi-service.md).
+[`docs/runbooks/runbook-instrument-fastapi-service.md`](docs/runbooks/runbook-instrument-fastapi-service.md).
 
 ### Accessing the dashboards locally
 
@@ -169,6 +169,9 @@ kubectl apply -f argocd/
 
 ## AWS Deployment
 
+Full step-by-step provisioning and teardown checklist:
+[`docs/runbooks/runbook-eks-provision-and-teardown.md`](docs/runbooks/runbook-eks-provision-and-teardown.md).
+
 ```bash
 # Bootstrap Terraform backend
 aws s3 mb s3://tfstate-eks-fintech-<account-id> --region us-east-1
@@ -199,13 +202,14 @@ docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/accounts-service:latest
 kubectl apply -f kubernetes/
 kubectl apply -f argocd/
 
-# Destroy when done
+# Destroy when done — see runbook above for the safe teardown order
+# (LoadBalancer Service must be deleted before terraform destroy)
 terraform destroy
 ```
 
 > **Note:** `kubernetes/*/deployment.yaml` files currently point at
 > local dev images (`imagePullPolicy: Never`) for kind development —
-> see `docs/incidents/2026-07-10-accounts-imagepullbackoff.md`. Before
+> see [`docs/incidents/2026-07-10-accounts-imagepullbackoff.md`](docs/incidents/2026-07-10-accounts-imagepullbackoff.md). Before
 > deploying to EKS, these need to be switched back to the ECR image
 > references shown above.
 
@@ -229,37 +233,50 @@ curl -X POST http://<ALB-DNS>/api/transactions \
   -d '{"account_id": "<id>", "amount": 500.00, "transaction_type": "deposit"}'
 ```
 
-## Key Architectural Decisions
+## Architecture Decision Records
+
+| ADR | Decision |
+|-----|----------|
+| [001](docs/adrs/001-argocd-gitops.md) | ArgoCD (GitOps) over manual `kubectl apply` |
+| [002](docs/adrs/002-local-kind-before-eks.md) | Develop locally on kind before deploying to EKS |
+| [003](docs/adrs/003-microservices-not-monolith.md) | Three services instead of a monolith |
+| [004](docs/adrs/004-observability-stack.md) | Observability stack (kube-prometheus-stack) |
+| [005](docs/adrs/005-pod-anti-affinity.md) | Pod Anti-Affinity for transactions HA |
 
 **Why microservices?**
-Accounts and transactions have different scaling requirements. Transactions experience load spikes (paydays, holidays) requiring HPA, while accounts remain stable.
+Accounts and transactions have different scaling requirements. Transactions experience load spikes (paydays, holidays) requiring HPA, while accounts remain stable. Full reasoning: [ADR-003](docs/adrs/003-microservices-not-monolith.md).
 
 **Why ArgoCD over kubectl apply in CI/CD?**
-GitOps ensures Git is the single source of truth. Any manual cluster changes are automatically reverted (selfHeal: true). Full audit trail via Git history.
+GitOps ensures Git is the single source of truth. Any manual cluster changes are automatically reverted (selfHeal: true). Full audit trail via Git history. Full reasoning: [ADR-001](docs/adrs/001-argocd-gitops.md).
 
 **Why Pod Anti-Affinity?**
-Ensures replicas are distributed across different nodes. If one node fails, the service remains available on the second node — critical for fintech availability requirements.
+Ensures replicas are distributed across different nodes. If one node fails, the service remains available on the second node — critical for fintech availability requirements. Full reasoning: [ADR-005](docs/adrs/005-pod-anti-affinity.md).
 
 **Why private subnets for EKS nodes?**
 Worker nodes are not directly accessible from the internet. All traffic flows through ALB → Ingress Controller → services. Reduces attack surface.
 
-**Why kube-prometheus-stack for observability, and why is it split into two ArgoCD Applications?**
-See [`docs/adrs/004-observability-stack.md`](docs/adrs/004-observability-stack.md) for full reasoning — short version: the Helm chart bundles the operator and CRDs needed for ServiceMonitor/PrometheusRule, and splitting the chart itself from the custom dashboards/alerts keeps an external dependency's release cycle separate from project-specific, frequently-changing content.
+**Why develop on kind before EKS?**
+Every debugging cycle on a local cluster costs nothing; the same cycle against a live EKS cluster accumulates real AWS spend regardless of whether the issue is a typo or a real bug. Full reasoning: [ADR-002](docs/adrs/002-local-kind-before-eks.md).
 
-## Incident Scenarios Documented
+**Why kube-prometheus-stack for observability, and why is it split into two ArgoCD Applications?**
+See [ADR-004](docs/adrs/004-observability-stack.md) for full reasoning — short version: the Helm chart bundles the operator and CRDs needed for ServiceMonitor/PrometheusRule, and splitting the chart itself from the custom dashboards/alerts keeps an external dependency's release cycle separate from project-specific, frequently-changing content.
+
+## Runbooks
+
+| Runbook | Purpose |
+|---------|---------|
+| [EKS provision and teardown](docs/runbooks/runbook-eks-provision-and-teardown.md) | Full checklist for standing up and safely tearing down the EKS cluster without leaving orphaned AWS resources |
+| [Instrument a FastAPI service with metrics](docs/runbooks/runbook-instrument-fastapi-service.md) | Reusable steps for adding Prometheus metrics to a new service |
+
+## Incidents Documented
 
 | Incident | Cause | Resolution |
 |----------|-------|------------|
-| CrashLoopBackOff | Wrong resource limits | kubectl describe → logs → fix limits |
-| 307 Redirect loop | FastAPI trailing slash | Added follow_redirects=True in httpx |
-| Node group CREATE_FAILED | t3.medium not available | Changed to t3.small |
-| Docker socket permission | User not in docker group | usermod -aG docker $USER |
-| ImagePullBackOff (accounts, api-gateway) | Deployment manifests referenced ECR images unreachable from kind (no IAM auth on kind nodes) | Built local `:dev` images, `kind load docker-image`, switched manifests to `imagePullPolicy: Never` — [details](docs/incidents/2026-07-10-accounts-imagepullbackoff.md) |
-| ServiceMonitor/PrometheusRule silently not scraped after ArgoCD migration | `release` label on ServiceMonitor/PrometheusRule didn't match the new Helm release name (`prometheus` → `kube-prometheus-stack`) — Prometheus's selector match failed silently, no error | Updated `release` label across all ServiceMonitors and the PrometheusRule to match the new release name |
-| ArgoCD Application stuck comparing Helm chart + Git values file | `values-kind.yaml` existed locally (used for `helm install`) but was never actually committed to Git — ArgoCD clones from GitHub and had no access to it | Committed the file; confirmed with `git show HEAD:<path>` before assuming any file is actually tracked |
-
-Full alert-validation writeup (deliberately triggering `PodRestartLoop`
-end-to-end): [`docs/incidents/2026-07-14-alert-validation-podrestartloop.md`](docs/incidents/2026-07-14-alert-validation-podrestartloop.md)
+| [307 Redirect → JSONDecodeError](docs/incidents/2026-06-25-api-gateway-307-redirect.md) | FastAPI trailing-slash redirect not followed by httpx proxy client | Added `follow_redirects=True`, fixed path-joining logic |
+| [EKS node group CREATE_FAILED](docs/incidents/2026-07-06-eks-nodegroup-create-failed.md) | `t3.medium` not Free-Tier eligible on this account | Changed default `instance_types` to `t3.small` |
+| [terraform destroy blocked — VPC DependencyViolation](docs/incidents/2026-07-06-terraform-destroy-vpc-dependency.md) | Orphaned classic ELB (created by Kubernetes, not Terraform) held ENIs in the VPC's subnets | Deleted the ELB and VPC manually, then `terraform state rm` to resync state |
+| [ImagePullBackOff (accounts, api-gateway)](docs/incidents/2026-07-10-accounts-imagepullbackoff.md) | Deployment manifests referenced ECR images unreachable from kind (no IAM auth on kind nodes) | Built local `:dev` images, `kind load docker-image`, switched manifests to `imagePullPolicy: Never` |
+| [PodRestartLoop alert validation](docs/incidents/2026-07-14-alert-validation-podrestartloop.md) | N/A — deliberate end-to-end test of the alerting pipeline | Confirmed `INACTIVE → PENDING → FIRING → INACTIVE` lifecycle and Alertmanager delivery |
 
 ## Screenshots
 
@@ -283,7 +300,7 @@ end-to-end): [`docs/incidents/2026-07-14-alert-validation-podrestartloop.md`](do
 | EC2 t3.small x2 | $0.046 | |
 | NAT Gateway x2 | $0.09 | |
 | ALB | $0.008 | |
-| **Total** | **~$0.25/hr** | Destroy after demo |
+| **Total** | **~$0.25/hr** | Destroy after demo — see [teardown runbook](docs/runbooks/runbook-eks-provision-and-teardown.md) |
 
 ## Author
 
