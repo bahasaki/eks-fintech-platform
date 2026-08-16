@@ -63,7 +63,7 @@ graph TB
 - **Registry** — AWS ECR
 - **Ingress** — NGINX Ingress Controller + AWS ALB
 - **Observability** — Prometheus, Grafana, Alertmanager (kube-prometheus-stack)
-- **CI/CD** — GitHub Actions (coming)
+- **CI/CD** — GitHub Actions (OIDC → ECR, automatic manifest tag updates)
 
 ## Services
 
@@ -130,6 +130,42 @@ kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:909
 # Alertmanager
 kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
 ```
+
+## CI/CD
+
+GitHub Actions builds and pushes container images on every push to
+`main` that touches `services/**`. A `detect-changes` job determines
+which service(s) actually changed and builds a matrix dynamically —
+only the affected service(s) get built, not all three.
+
+```
+git push (code change)
+    ↓
+detect-changes — dorny/paths-filter determines which service(s) changed
+    ↓
+build-and-push (matrix: only changed services)
+    ├── Assume AWS IAM role via GitHub OIDC (no long-lived credentials)
+    ├── docker build, tag with :latest and :<git-sha>
+    ├── docker push to ECR
+    └── sed-update the image tag in kubernetes/<service>/deployment.yaml,
+        commit with [skip ci], push back to main
+    ↓
+ArgoCD (on next sync) picks up the new image tag from Git
+```
+
+Authentication uses a GitHub OIDC-federated IAM role
+(`eks-fintech-github-actions-ecr-push-role`, scoped to push/pull only
+on this project's three ECR repositories) rather than long-lived AWS
+access keys stored as GitHub secrets.
+
+CI intentionally does **not** deploy directly — it only builds, pushes
+to ECR, and commits the new image tag back to Git. Deployment remains
+ArgoCD's responsibility, consistent with [ADR-001](docs/adrs/001-argocd-gitops.md).
+
+Two real bugs were hit and fixed while building this pipeline — a
+matrix that silently "succeeded" without actually building two of
+three services, and a `git rebase` ordering issue — both documented in
+[`docs/incidents/2026-08-16-cicd-matrix-and-rebase-bugs.md`](docs/incidents/2026-08-16-cicd-matrix-and-rebase-bugs.md).
 
 ## Infrastructure
 
@@ -281,6 +317,7 @@ See [ADR-004](docs/adrs/004-observability-stack.md) for full reasoning — short
 | [PodRestartLoop alert validation](docs/incidents/2026-07-14-alert-validation-podrestartloop.md) | N/A — deliberate end-to-end test of the alerting pipeline | Confirmed `INACTIVE → PENDING → FIRING → INACTIVE` lifecycle and Alertmanager delivery |
 | [values-kind.yaml never committed to Git](docs/incidents/2026-08-02-values-file-never-committed.md) | File existed and worked locally (used by manual `helm install`) but was never actually `git add`-ed | Committed the file; confirmed with `git show HEAD:<path>` before assuming any file is tracked |
 | [Release-label mismatch after Helm rename](docs/incidents/2026-08-03-release-label-mismatch.md) | ArgoCD migration renamed the Helm release (`prometheus` → `kube-prometheus-stack`), silently breaking the `release` label match on all ServiceMonitors/PrometheusRule | Updated the `release` label across all four manifests to match the new release name |
+| [CI/CD matrix skip-logic and git rebase bugs](docs/incidents/2026-08-16-cicd-matrix-and-rebase-bugs.md) | Per-step `if:` conditions reported job success even when steps were skipped; `git pull --rebase` ran after a file-modifying step instead of before | Rebuilt the matrix dynamically from changed-service detection; reordered rebase to run before `sed` touches any file |
 
 ## Screenshots
 
