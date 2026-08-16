@@ -50,4 +50,4 @@ async def proxy_transactions(request: Request, path: str = ""):
             )
             return JSONResponse(content=response.json(), status_code=response.status_code)
         except httpx.ConnectError:
-            raise HTTPException(status_code=503, detail="Transactions service unavailable")
+            raise HTTPException(status_code=503, detail="Transactions service unavailable")# CI/CD test - verify pipeline for api-gateway
