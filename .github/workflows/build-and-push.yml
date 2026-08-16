@@ -20,11 +20,11 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      accounts: ${{ steps.filter.outputs.accounts }}
-      transactions: ${{ steps.filter.outputs.transactions }}
-      api-gateway: ${{ steps.filter.outputs.api-gateway }}
+      services: ${{ steps.set-matrix.outputs.services }}
+      any-changed: ${{ steps.set-matrix.outputs.any-changed }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -36,37 +36,48 @@ jobs:
             api-gateway:
               - 'services/api-gateway/**'
 
+      - name: Build matrix of changed services
+        id: set-matrix
+        run: |
+          services="[]"
+          if [ "${{ steps.filter.outputs.accounts }}" == "true" ]; then
+            services=$(echo "$services" | jq -c '. += ["accounts"]')
+          fi
+          if [ "${{ steps.filter.outputs.transactions }}" == "true" ]; then
+            services=$(echo "$services" | jq -c '. += ["transactions"]')
+          fi
+          if [ "${{ steps.filter.outputs.api-gateway }}" == "true" ]; then
+            services=$(echo "$services" | jq -c '. += ["api-gateway"]')
+          fi
+          echo "services=$services" >> "$GITHUB_OUTPUT"
+          if [ "$services" == "[]" ]; then
+            echo "any-changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "any-changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Changed services: $services"
+
   build-and-push:
     needs: detect-changes
-    if: needs.detect-changes.outputs.accounts == 'true' || needs.detect-changes.outputs.transactions == 'true' || needs.detect-changes.outputs.api-gateway == 'true'
+    if: needs.detect-changes.outputs.any-changed == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [accounts, transactions, api-gateway]
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check if this service changed
-        id: check
-        run: |
-          if [ "${{ matrix.service }}" == "accounts" ] && [ "${{ needs.detect-changes.outputs.accounts }}" != "true" ]; then echo "skip=true" >> $GITHUB_OUTPUT; fi
-          if [ "${{ matrix.service }}" == "transactions" ] && [ "${{ needs.detect-changes.outputs.transactions }}" != "true" ]; then echo "skip=true" >> $GITHUB_OUTPUT; fi
-          if [ "${{ matrix.service }}" == "api-gateway" ] && [ "${{ needs.detect-changes.outputs.api-gateway }}" != "true" ]; then echo "skip=true" >> $GITHUB_OUTPUT; fi
-
       - name: Configure AWS credentials via OIDC
-        if: steps.check.outputs.skip != 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::774493573578:role/eks-fintech-github-actions-ecr-push-role
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to ECR
-        if: steps.check.outputs.skip != 'true'
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push image
-        if: steps.check.outputs.skip != 'true'
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
@@ -77,16 +88,15 @@ jobs:
           docker push $ECR_REGISTRY/${{ matrix.service }}-service:latest
 
       - name: Update Kubernetes manifest with new image tag
-        if: steps.check.outputs.skip != 'true'
         run: |
           sed -i "s|image: .*${{ matrix.service }}-service:.*|image: ${ECR_REGISTRY}/${{ matrix.service }}-service:${{ github.sha }}|" \
             kubernetes/${{ matrix.service }}/deployment.yaml
 
       - name: Commit updated manifest
-        if: steps.check.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
           git add kubernetes/${{ matrix.service }}/deployment.yaml
           git diff --staged --quiet || git commit -m "chore: update ${{ matrix.service }} image to ${{ github.sha }} [skip ci]"
           git push
