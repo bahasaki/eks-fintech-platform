@@ -60,3 +60,4 @@ def get_account_transactions(account_id: str):
         if t["account_id"] == account_id
     ]
     return {"transactions": account_transactions, "total": len(account_transactions)}# CI/CD pipeline test - triggers transactions rebuild
+# CI/CD test v2 - verify rebase fix
