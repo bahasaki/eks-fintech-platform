@@ -1,3 +1,5 @@
+# CI/CD pipeline test - triggers accounts service rebuild
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
